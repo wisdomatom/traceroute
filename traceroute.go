@@ -247,17 +247,14 @@ func Traceroute(dest string, options *TracerouteOptions, c ...chan TracerouteHop
 			}
 		} else {
 			retry += 1
+			notify(TracerouteHop{Success: false, TTL: ttl}, c)
+			ttl += 1
+			// return when this hop is not reachable
 			if retry > options.Retries() {
-				notify(TracerouteHop{Success: false, TTL: ttl}, c)
-				ttl += 1
 				retry = 0
-			}
-
-			if ttl > options.MaxHops() {
 				closeNotify(c)
 				return result, nil
 			}
 		}
-
 	}
 }
