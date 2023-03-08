@@ -32,13 +32,14 @@ type TCPOption struct {
 type MHopResp []HopResp
 
 type TraceConfig struct {
-	Dest    string
-	UDP     bool
-	TCP     bool
-	MaxTTL  int
-	Resolve bool
-	Wait    string
-	Count   int
+	SendAddr string
+	Dest     string
+	UDP      bool
+	TCP      bool
+	MaxTTL   int
+	Resolve  bool
+	Wait     string
+	Count    int
 }
 
 func IsIPv4(ip net.IP) bool {
@@ -73,12 +74,16 @@ func NewTrace(conf TraceConfig) (*Trace, error) {
 
 	UDP := conf.UDP
 	TCP := conf.TCP
+	if conf.SendAddr == "" {
+		conf.SendAddr = "0.0.0.0"
+	}
 
 	t := &Trace{
 		host:     "",
 		ips:      []net.IP{ip},
 		ip:       ip,
 		src:      lAddr,
+		sendAddr: conf.SendAddr,
 		seq:      1,
 		family:   family,
 		proto:    proto,
@@ -136,12 +141,6 @@ func (i *Trace) Send(port int) (int, int, error) {
 		proto = syscall.IPPROTO_UDP
 	}
 
-	fd, err := syscall.Socket(i.family, sotype, proto)
-	if err != nil {
-		return id, seq, err
-	}
-	defer syscall.Close(fd)
-
 	// Set options
 	if IsIPv4(i.ip) {
 		err = i.Sendv4(id, seq, port)
@@ -149,6 +148,13 @@ func (i *Trace) Send(port int) (int, int, error) {
 	} else {
 		var b [16]byte
 		copy(b[:], i.ip.To16())
+
+		fd, err := syscall.Socket(i.family, sotype, proto)
+		if err != nil {
+			return id, seq, err
+		}
+		defer syscall.Close(fd)
+
 		addr := syscall.SockaddrInet6{
 			Port:   port,
 			ZoneId: 0,
@@ -169,7 +175,7 @@ func (i *Trace) Send(port int) (int, int, error) {
 	return id, seq, nil
 }
 
-// Send tries to send ICMP/UDP IPv4 packet
+// Sendv4 tries to send ICMP/UDP IPv4 packet
 func (i *Trace) Sendv4(id, seq, rport int) error {
 	var (
 		b     []byte
@@ -191,7 +197,7 @@ func (i *Trace) Sendv4(id, seq, rport int) error {
 		setTCPCheckSum(i.src, i.ip, b)
 	}
 
-	c, err := net.ListenPacket(fmt.Sprintf("ip4:%d", proto), "0.0.0.0")
+	c, err := net.ListenPacket(fmt.Sprintf("ip4:%d", proto), i.sendAddr)
 	if err != nil {
 		return err
 	}

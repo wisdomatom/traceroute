@@ -8,13 +8,14 @@ import (
 
 func TestTrace(t *testing.T) {
 	tr, err := icmp.NewTrace(icmp.TraceConfig{
-		Dest:    "172.16.57.12",
-		UDP:     true,
-		TCP:     false,
-		MaxTTL:  30,
-		Resolve: false,
-		Wait:    "100ms",
-		Count:   1,
+		SendAddr: "10.23.228.11",
+		Dest:     "172.16.57.12",
+		UDP:      true,
+		TCP:      false,
+		MaxTTL:   30,
+		Resolve:  false,
+		Wait:     "100ms",
+		Count:    1,
 	})
 	if err != nil {
 		panic(err)

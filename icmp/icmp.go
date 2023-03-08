@@ -44,6 +44,7 @@ const (
 // Trace represents trace properties
 type Trace struct {
 	host     string
+	sendAddr string
 	src      net.IP
 	ip       net.IP
 	ips      []net.IP
