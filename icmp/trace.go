@@ -197,6 +197,40 @@ func (i *Trace) Sendv4(id, seq, rport int) error {
 		setTCPCheckSum(i.src, i.ip, b)
 	}
 
+	//fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, proto)
+	//if err != nil {
+	//	return err
+	//}
+	//defer syscall.Close(fd)
+	//
+	//var ipA [4]byte
+	//ip := net.ParseIP(i.sendAddr)
+	//copy(ipA[:], ip.To4())
+	//addr := syscall.SockaddrInet4{
+	//	Port:   rport,
+	//	Addr:   ipA,
+	//}
+	//
+	//if err := syscall.Bind(i.fd, &addr); err != nil {
+	//	return os.NewSyscallError("bind v4", err)
+	//}
+	//
+	//err = setIPv4TTL(fd, i.ttl)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//var ipSend [4]byte
+	//copy(ipSend[:], i.ip.To4())
+	//send := syscall.SockaddrInet4{
+	//	Port: rport,
+	//	Addr: ipSend,
+	//}
+	//if err = syscall.Sendto(fd, b, 0, &send); err != nil {
+	//	return err
+	//}
+	//return nil
+
 	c, err := net.ListenPacket(fmt.Sprintf("ip4:%d", proto), i.sendAddr)
 	if err != nil {
 		return err
@@ -317,6 +351,35 @@ func (i *Trace) Recv(id, seq int) (ICMPResp, error) {
 		b = b[:n]
 
 		if len(i.ip.To4()) == net.IPv4len {
+			//var msg *icmp.Message
+			//msg, err = icmp.ParseMessage(syscall.IPPROTO_ICMP, b)
+			//if err != nil {
+			//	du, _ := time.ParseDuration(i.wait)
+			//	if time.Since(ts) < du {
+			//		continue
+			//	}
+			//	return resp, err
+			//}
+			//switch pkt := msg.Body.(type) {
+			//case *icmp.Echo:
+			//	if id != pkt.ID {
+			//		continue
+			//	}
+			//	if pkt.Seq != seq {
+			//		continue
+			//	}
+			//	resp.typ = int(b[20])
+			//	resp.code = int(b[21])
+			//	resp.src = net.IPv4(b[12], b[13], b[14], b[15])
+			//	return resp, nil
+			//default:
+			//	du, _ := time.ParseDuration(i.wait)
+			//	if time.Since(ts) < du {
+			//		continue
+			//	}
+			//	return resp, err
+			//}
+
 			resp = icmpV4RespParser(b)
 			wID = resp.typ == IPv4ICMPTypeEchoReply && id != resp.id
 			wSeq = seq != resp.seq
