@@ -29,8 +29,6 @@ type Config struct {
 type trace struct {
 	netProto         string
 	sourceAddr       string
-	detectCache      *sync.Map
-	destTrackerMap   *sync.Map
 	detectPayloadMap *sync.Map
 	tracker          uint64
 	rcvConn          *icmp.PacketConn
@@ -72,8 +70,6 @@ func NewTracer(c Config) (*trace, error) {
 		return nil, err
 	}
 	t := &trace{
-		detectCache:      &sync.Map{},
-		destTrackerMap:   &sync.Map{},
 		detectPayloadMap: &sync.Map{},
 		tracker:          rand.Uint64(),
 		size:             c.Size,
@@ -158,75 +154,6 @@ func (t *trace) InitRcvConn() error {
 	return err
 }
 
-func (t *trace) processPktNew(b []byte, detect *Detect) error {
-	var id int
-	var seq int
-	_, _ = id, seq
-	var dst net.IP
-	var src net.IP
-
-	typ := int(b[20])
-	//code := int(b[21])
-	src = net.IPv4(b[12], b[13], b[14], b[15])
-	detect.Src = &net.IPAddr{IP: src}
-
-	switch typ {
-	case IPv4ICMPTypeEchoReply:
-		id = int(b[24])<<8 | int(b[25])
-		seq = int(b[26])<<8 | int(b[27])
-		tracker := b[43]
-		_ = tracker
-		trackerI, ok := t.destTrackerMap.Load(src.To4().String())
-		if !ok {
-			return nil
-		}
-		rcvChI, ok := t.detectCache.Load(trackerI)
-		if !ok {
-			return nil
-		}
-		detect.Last = true
-		rcvCh := rcvChI.(chan *Detect)
-		rcvCh <- detect
-	case IPv4ICMPTypeDestinationUnreachable:
-		h, err := ipv4.ParseHeader(b[28:48])
-		if err == nil {
-			id = h.ID
-			dst = h.Dst
-		}
-		trackerI, ok := t.destTrackerMap.Load(dst.To4().String())
-		if !ok {
-			return nil
-		}
-		rcvChI, ok := t.detectCache.Load(trackerI)
-		if !ok {
-			return nil
-		}
-		rcvCh := rcvChI.(chan *Detect)
-		rcvCh <- detect
-	case IPv4ICMPTypeTimeExceeded:
-		h, err := ipv4.ParseHeader(b[28:48])
-		id = int(b[52])<<8 | int(b[53])
-		seq = int(b[54])<<8 | int(b[55])
-		if err == nil {
-			id = h.ID
-			dst = h.Dst
-		}
-		trackerI, ok := t.destTrackerMap.Load(dst.To4().String())
-		if !ok {
-			return nil
-		}
-		rcvChI, ok := t.detectCache.Load(trackerI)
-		if !ok {
-			return nil
-		}
-		rcvCh := rcvChI.(chan *Detect)
-		rcvCh <- detect
-	default:
-		return fmt.Errorf("位置ICMP协议类型(%v)", typ)
-	}
-	return nil
-}
-
 func (t *trace) processPktV4(bytes []byte, detect *Detect) error {
 	var msg *icmp.Message
 	var err error
@@ -241,17 +168,6 @@ func (t *trace) processPktV4(bytes []byte, detect *Detect) error {
 	if err != nil {
 		return err
 	}
-	msgType := map[int]struct{}{
-		int(ipv4.ICMPTypeEchoReply):              {},
-		int(ipv4.ICMPTypeTimeExceeded):           {},
-		int(ipv4.ICMPTypeDestinationUnreachable): {},
-		int(ipv6.ICMPTypeEchoReply):              {},
-		//int(ipv6.ICMPTypeTimeExceeded): {},
-		int(ipv6.ICMPTypeDestinationUnreachable): {},
-	}
-	if _, ok := msgType[msg.Type.Protocol()]; !ok {
-		return nil
-	}
 	var id, seq uint
 	var data []byte
 	var dst string
@@ -264,12 +180,11 @@ func (t *trace) processPktV4(bytes []byte, detect *Detect) error {
 		seq = uint(pkt.Seq)
 		data = pkt.Data
 		dst = detect.Src.String()
-
 		tracker := bytesToUint64(pkt.Data[8:])
 		timestamp := bytesToTime(pkt.Data[:8])
 		_, _ = tracker, timestamp
 	case *icmp.TimeExceeded:
-		if len(pkt.Data) < 24 {
+		if len(pkt.Data) < 28 {
 			return fmt.Errorf("icmp收包不完整")
 		}
 		id = bytesToUint(pkt.Data[24:26])
@@ -277,13 +192,15 @@ func (t *trace) processPktV4(bytes []byte, detect *Detect) error {
 		data = pkt.Data
 		dst = net.IPv4(pkt.Data[16], pkt.Data[17], pkt.Data[18], pkt.Data[19]).String()
 	case *icmp.DstUnreach:
-		if len(pkt.Data) < 24 {
+		if len(pkt.Data) < 28 {
 			return fmt.Errorf("icmp收包不完整")
 		}
 		id = bytesToUint(pkt.Data[24:26])
 		seq = bytesToUint(pkt.Data[26:28])
 		data = pkt.Data
 		dst = net.IPv4(pkt.Data[16], pkt.Data[17], pkt.Data[18], pkt.Data[19]).String()
+	default:
+		return nil
 	}
 	_ = data
 	payloadI, ok := t.detectPayloadMap.Load(fmt.Sprintf("%v-%v", id, seq))
@@ -303,16 +220,11 @@ func (t *trace) processPktV4(bytes []byte, detect *Detect) error {
 func (t *trace) Trace(destAddr string, sourceAddr string) (chan *Detect, error) {
 	var err error
 	var conn *icmp.PacketConn
-	//id := rand.Int() % 60000
-	id := 171
+	id := rand.Int() % 60000
 	seq := 1
-	//tracker := rand.Uint64()
-	tracker := uint64(131)
+	tracker := rand.Uint64()
 	resCh := make(chan *Detect, t.maxTTL)
 	ch := make(chan *Detect, t.maxTTL)
-	t.detectCache.Store(tracker, ch)
-	t.destTrackerMap.Store(destAddr, tracker)
-
 	if t.ipv4 {
 		if t.netProto == "icmp" {
 			conn, err = icmp.ListenPacket("ip4:icmp", sourceAddr)
@@ -366,7 +278,6 @@ func (t *trace) Trace(destAddr string, sourceAddr string) (chan *Detect, error) 
 				}
 			}
 		}
-		t.detectCache.Delete(id)
 		close(ch)
 	}()
 	return resCh, nil
